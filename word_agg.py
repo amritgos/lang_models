@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# Define custom filters to remove specific punctuation and symbols
+custom_filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n'
+
 # Initialize the tokenizer (example with BERT)
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 

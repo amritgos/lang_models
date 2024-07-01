@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoTokenizer
 from lxt.models.llama import LlamaForCausalLM, attnlrp
-from lxt.utils import pdf_heatmap, clean_tokens
+from lxt.utils import clean_tokens
 
 # Load the model and tokenizer
 model = LlamaForCausalLM.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0", torch_dtype=torch.bfloat16, device_map="cuda")
@@ -28,32 +28,20 @@ generated_ids = output.logits.argmax(dim=-1)
 generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 print(f"Generated Text: {generated_text}")
 
-# Identify the target token from the generated text
-target_token = "8,320"  # Replace this with the actual target token you're interested in
-target_token_id = tokenizer.convert_tokens_to_ids(target_token)
-
-# Find the token index of the target token in the generated text
+# Tokenize the generated text
 generated_tokens = tokenizer.convert_ids_to_tokens(generated_ids[0])
-target_indices = [i for i, token in enumerate(generated_tokens) if token == target_token]
-
-# If there are multiple target tokens, you can choose one or aggregate across them
-# Here we just take the first one for simplicity
-target_token_index = target_indices[0]  # Get the index of the target token in the generated sequence
-
-# Get the logits for the target token
-target_logits = output.logits[0, target_token_index, :]
-
-# Find the highest logit (target) to use for backward
-max_target_logits, max_target_indices = torch.max(target_logits, dim=-1)
+print(f"Generated Tokens: {generated_tokens}")
 
 # Perform backward pass to compute gradients
 model.zero_grad()
-max_target_logits.backward(retain_graph=True)  # retain_graph=True to perform multiple backward passes if needed
+# We need to compute the loss over all logits to get gradients
+loss = torch.nn.CrossEntropyLoss()(output.logits.view(-1, output.logits.size(-1)), generated_ids.view(-1))
+loss.backward()
 
 # Compute relevance scores
 relevance = input_embeds.grad.float().sum(-1).cpu()[0]
 
-# Normalize relevance between [-1, 1] for plotting
+# Normalize relevance between [-1, 1]
 relevance = relevance / relevance.abs().max()
 
 # Convert token IDs to token strings and clean them
@@ -61,7 +49,6 @@ tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
 tokens = clean_tokens(tokens)
 
 # Map token relevance scores to words using whitespace tokenization
-# Split on spaces and aggregate relevance scores
 word_relevance = {}
 current_word = []
 current_word_scores = []
@@ -102,6 +89,3 @@ def plot_heatmap(scores, words, filename):
 
 # Generate the heatmap
 plot_heatmap(scores, words, "word_level_relevance_heatmap.pdf")
-
-# Print target token for verification
-print(f"Target Token: {tokenizer.convert_ids_to_tokens(target_token_id)}")

@@ -1,19 +1,3 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-
-def plot_heatmap(scores, words, filename):
-    plt.figure(figsize=(12, 8))
-    df = pd.DataFrame({'Word': words, 'Relevance': scores})
-    df = df.sort_values(by='Relevance', ascending=False)
-    sns.heatmap(df[['Word', 'Relevance']].set_index('Word').T, annot=True, cmap='coolwarm', cbar=True)
-    plt.title('Word-Level Relevance Heatmap')
-    plt.savefig(filename)
-    plt.show()
-
-## Example usage
-# plot_heatmap(scores, words, "word_level_relevance_heatmap.pdf")
-
 import torch
 from transformers import AutoTokenizer
 from lxt.models.llama import LlamaForCausalLM, attnlrp
@@ -35,21 +19,29 @@ Question: How high did they climb in 1922? According to the text, the 1922 exped
 input_ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=True).input_ids.to(model.device)
 input_embeds = model.get_input_embeddings()(input_ids)
 
-# Perform a forward pass
-output_logits = model(inputs_embeds=input_embeds.requires_grad_(), use_cache=False).logits
+# Generate the model's output
+with torch.no_grad():
+    output = model(input_ids=input_ids, use_cache=True)
+generated_ids = output.logits.argmax(dim=-1)
 
-# Compute the target token index (e.g., the token corresponding to '8,320 m (27,300 ft)')
-# Find the token index of the target word "8,320" in the generated text
-target_token = "8,320"  # or the specific token(s) of interest
-target_token_id = tokenizer.convert_tokens_to_ids(target_token)  # Convert the target token to token ID
-target_indices = (input_ids[0] == target_token_id).nonzero(as_tuple=True)  # Find indices of the target token
+# Decode the generated output
+generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+print(f"Generated Text: {generated_text}")
+
+# Identify the target token from the generated text
+target_token = "8,320"  # Replace this with the actual target token you're interested in
+target_token_id = tokenizer.convert_tokens_to_ids(target_token)
+
+# Find the token index of the target token in the generated text
+generated_tokens = tokenizer.convert_ids_to_tokens(generated_ids[0])
+target_indices = [i for i, token in enumerate(generated_tokens) if token == target_token]
 
 # If there are multiple target tokens, you can choose one or aggregate across them
 # Here we just take the first one for simplicity
-target_token_index = target_indices[0].item()  # Get the index of the target token in the input sequence
+target_token_index = target_indices[0]  # Get the index of the target token in the generated sequence
 
 # Get the logits for the target token
-target_logits = output_logits[0, target_token_index, :]
+target_logits = output.logits[0, target_token_index, :]
 
 # Find the highest logit (target) to use for backward
 max_target_logits, max_target_indices = torch.max(target_logits, dim=-1)
@@ -93,3 +85,23 @@ if current_word:
 # Sort words by relevance for visualization
 sorted_words = sorted(word_relevance.items(), key=lambda x: x[1], reverse=True)
 words, scores = zip(*sorted_words)
+
+# Generate a heatmap for the word-level relevance scores
+def plot_heatmap(scores, words, filename):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+
+    plt.figure(figsize=(12, 8))
+    df = pd.DataFrame({'Word': words, 'Relevance': scores})
+    df = df.sort_values(by='Relevance', ascending=False)
+    sns.heatmap(df[['Word', 'Relevance']].set_index('Word').T, annot=True, cmap='coolwarm', cbar=True)
+    plt.title('Word-Level Relevance Heatmap')
+    plt.savefig(filename)
+    plt.show()
+
+# Generate the heatmap
+plot_heatmap(scores, words, "word_level_relevance_heatmap.pdf")
+
+# Print target token for verification
+print(f"Target Token: {tokenizer.convert_ids_to_tokens(target_token_id)}")
